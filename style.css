@@ -1,0 +1,32 @@
+.cpi-settings {
+    margin-top: 10px;
+}
+
+.cpi-section {
+    margin-bottom: 12px;
+}
+
+.cpi-section h4 {
+    margin: 8px 0 6px 0;
+    color: #ddd;
+    font-size: 14px;
+}
+
+.cpi-info-box {
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    padding: 10px;
+    margin-top: 8px;
+}
+
+.cpi-status {
+    font-weight: bold;
+    margin-top: 6px;
+    font-size: 13px;
+}
+
+.cpi-dim {
+    color: #999;
+    font-size: 12px;
+}

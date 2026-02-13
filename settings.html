@@ -1,0 +1,66 @@
+<div class="cpi-settings">
+    <div class="inline-drawer">
+        <div class="inline-drawer-toggle inline-drawer-header">
+            <b>CPI - Copilot Interceptor</b>
+            <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+        </div>
+        <div class="inline-drawer-content">
+
+            <div class="cpi-section">
+                <div class="cpi-info-box" style="background:#1a1a2e; border:1px solid #444; border-radius:6px; padding:10px;">
+                    <b>📌 이 확장은 GCM과 함께 사용됩니다</b>
+                    <p style="margin:6px 0 0; line-height:1.6; font-size:13px;">
+                        GCM에서 발급한 토큰을 자동으로 읽어와서,<br>
+                        SillyTavern의 Copilot 요청을 올바른 엔드포인트와 헤더로 변환합니다.<br>
+                        <br>
+                        <b>설정 방법:</b> Chat Completion → Custom (OpenAI-compatible)<br>
+                        API 주소: <code>https://api.githubcopilot.com</code><br>
+                        API 키: 아무 값 입력 (CPI가 자동 대체)
+                    </p>
+                </div>
+            </div>
+
+            <hr class="sysHR" />
+
+            <div class="cpi-section">
+                <h4><i class="fa-solid fa-bolt"></i> 상태</h4>
+                <p id="cpi_status" class="cpi-status">로딩 중...</p>
+            </div>
+
+            <hr class="sysHR" />
+
+            <div class="cpi-section">
+                <h4><i class="fa-solid fa-gear"></i> 설정</h4>
+
+                <label class="checkbox_label" style="margin-bottom:8px;">
+                    <input id="cpi_enabled" type="checkbox" checked />
+                    <span>인터셉터 활성화</span>
+                </label>
+
+                <label class="checkbox_label" style="margin-bottom:8px;">
+                    <input id="cpi_use_vscode_headers" type="checkbox" checked />
+                    <span>VSCode 위장 헤더 (권장)</span>
+                    <small class="cpi-dim" style="display:block; margin-left:24px;">
+                        tid 토큰 + VSCode 동일 헤더 전송. 끄면 최소 헤더만
+                    </small>
+                </label>
+
+                <div style="margin-top:8px;">
+                    <label for="cpi_chat_version" style="font-size:12px;">Copilot Chat 버전:</label>
+                    <input id="cpi_chat_version" type="text" class="text_pole" value="0.26.4" placeholder="0.26.4" style="font-size:12px;" />
+                </div>
+
+                <div style="margin-top:4px;">
+                    <label for="cpi_code_version" style="font-size:12px;">VSCode 버전:</label>
+                    <input id="cpi_code_version" type="text" class="text_pole" value="1.100.0" placeholder="1.100.0" style="font-size:12px;" />
+                </div>
+
+                <div style="margin-top:10px;">
+                    <input id="cpi_reset_session" class="menu_button" type="button" value="🔄 세션 초기화" />
+                </div>
+            </div>
+
+            <hr class="sysHR" />
+        </div>
+    </div>
+</div>
