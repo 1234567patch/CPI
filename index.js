@@ -195,7 +195,9 @@ function convertToAnthropicFormat(messages, model, params) {
     }
 
     if (params.temperature != null) body.temperature = params.temperature;
-    if (params.top_p != null) body.top_p = params.top_p;
+    // Anthropic API: temperature와 top_p를 동시에 보내면 안 됨
+    // temperature가 없을 때만 top_p 전송
+    if (params.temperature == null && params.top_p != null) body.top_p = params.top_p;
     if (params.stream != null) body.stream = params.stream;
 
     return body;
