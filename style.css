@@ -12,14 +12,6 @@
     font-size: 14px;
 }
 
-.cpi-info-box {
-    background: rgba(255, 255, 255, 0.05);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 6px;
-    padding: 10px;
-    margin-top: 8px;
-}
-
 .cpi-status {
     font-weight: bold;
     margin-top: 6px;
@@ -29,4 +21,67 @@
 .cpi-dim {
     color: #999;
     font-size: 12px;
+}
+
+/* 토글 옵션 */
+.cpi-toggle {
+    margin-bottom: 8px !important;
+}
+
+.cpi-toggle-desc {
+    display: block;
+    margin-left: 24px;
+}
+
+/* 버전 입력 */
+.cpi-version-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.cpi-version-row label {
+    font-size: 12px;
+    white-space: nowrap;
+    min-width: 90px;
+}
+
+.cpi-version-row input {
+    font-size: 12px;
+}
+
+/* 로그 패널 */
+.cpi-log-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+}
+
+.cpi-log-box {
+    background: #0d1117;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 8px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 11px;
+    line-height: 1.5;
+    max-height: 500px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    word-break: break-all;
+}
+
+.cpi-log-box::-webkit-scrollbar {
+    width: 6px;
+}
+
+.cpi-log-box::-webkit-scrollbar-track {
+    background: #0d1117;
+}
+
+.cpi-log-box::-webkit-scrollbar-thumb {
+    background: #333;
+    border-radius: 3px;
 }
