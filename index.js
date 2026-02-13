@@ -1,5 +1,5 @@
 // CPI - Copilot Interceptor
-// GCM(토큰 발급)과 별도로 동작하는 Copilot API 요청 인터셉터
+// OpenAI (/chat/completions) 또는 Anthropic (/v1/messages) 엔드포인트 선택 가능
 import { extension_settings } from "../../../extensions.js";
 import { saveSettingsDebounced } from "../../../../script.js";
 
@@ -13,16 +13,19 @@ const defaultSettings = {
     enabled: true,
     useVscodeHeaders: true,
     removePrefill: true,
+    trimAssistant: true,
+    forceLastUser: true,
     basicAuthCompat: false,
     debugLog: true,
+    endpoint: "anthropic",  // "openai" 또는 "anthropic"
     chatVersion: "0.26.4",
     codeVersion: "1.100.0",
 };
 
-const LOG_MAX = 200;
+const LOG_MAX = 500;
 
 // ============================================================
-// 디버그 로그 시스템
+// 디버그 로그
 // ============================================================
 const DebugLog = {
     entries: [],
@@ -34,88 +37,87 @@ const DebugLog = {
             typeof a === "object" ? JSON.stringify(a, null, 2) : String(a)
         ).join(" ");
 
-        const entry = { time, level, msg };
-        this.entries.push(entry);
+        this.entries.push({ time, level, msg });
         if (this.entries.length > LOG_MAX) this.entries.shift();
 
-        // 콘솔에도 출력
         if (level === "ERROR") console.error(`[CPI] ${msg}`);
         else if (level === "WARN") console.warn(`[CPI] ${msg}`);
         else console.log(`[CPI] ${msg}`);
 
-        // UI 업데이트
         if (s.debugLog) this.render();
     },
 
-    info(...args) { this.add("INFO", ...args); },
-    warn(...args) { this.add("WARN", ...args); },
-    error(...args) { this.add("ERROR", ...args); },
+    info(...a) { this.add("INFO", ...a); },
+    warn(...a) { this.add("WARN", ...a); },
+    error(...a) { this.add("ERROR", ...a); },
 
-    /** 요청/응답 상세 로그 */
     request(method, url, headers, body) {
         this.add("REQ", `━━━ 요청 ━━━`);
         this.add("REQ", `${method} ${url}`);
+        this.add("REQ", `모델: ${body?.model || "?"} | stream: ${body?.stream} | temp: ${body?.temperature ?? "?"} | max_tokens: ${body?.max_tokens ?? "?"}`);
 
-        // 헤더 (Authorization은 마스킹)
-        const safeHeaders = { ...headers };
-        if (safeHeaders["Authorization"]) {
-            safeHeaders["Authorization"] = safeHeaders["Authorization"].substring(0, 20) + "...";
+        const safe = { ...headers };
+        if (safe["Authorization"]) safe["Authorization"] = safe["Authorization"].substring(0, 20) + "...";
+        this.add("REQ", `헤더: ${JSON.stringify(safe)}`);
+
+        // messages 개별 출력
+        const msgs = body?.messages || [];
+        if (msgs.length > 0) {
+            this.add("REQ", `━━━ Messages (${msgs.length}개) ━━━`);
+            msgs.forEach((m, i) => {
+                const c = typeof m.content === "string" ? m.content
+                    : Array.isArray(m.content) ? m.content.map(b => b.text || "").join("") 
+                    : JSON.stringify(m.content);
+                this.add("REQ", `[${i}] role=${m.role} (${c.length}자)\n${c}`);
+            });
+            this.add("REQ", `━━━ Messages 끝 ━━━`);
         }
-        this.add("REQ", `헤더: ${JSON.stringify(safeHeaders)}`);
 
-        // body 전체를 그대로 출력 (Termux 스타일)
-        const safeBody = { ...body };
-        // messages 내용을 그대로 보여줌
-        this.add("REQ", `BODY:\n${JSON.stringify(safeBody, null, 2)}`);
+        // system (Anthropic 포맷)
+        if (body?.system) {
+            const sysText = Array.isArray(body.system) ? body.system.map(s => s.text || "").join("") : String(body.system);
+            this.add("REQ", `━━━ System (${sysText.length}자) ━━━\n${sysText}`);
+        }
+
+        const params = { ...body };
+        delete params.messages;
+        delete params.system;
+        this.add("REQ", `기타: ${JSON.stringify(params)}`);
     },
 
     response(status, statusText, bodyPreview) {
         this.add("RES", `━━━ 응답 ━━━`);
         this.add("RES", `상태: ${status} ${statusText || ""}`);
         if (bodyPreview) {
-            this.add("RES", `내용: ${bodyPreview.substring(0, 200)}${bodyPreview.length > 200 ? "..." : ""}`);
+            this.add("RES", `내용: ${bodyPreview.substring(0, 300)}${bodyPreview.length > 300 ? "..." : ""}`);
         }
     },
 
     render() {
         const el = $("#cpi_log_content");
         if (!el.length) return;
-
-        const colorMap = {
-            INFO: "#8bc34a",
-            WARN: "#FF9800",
-            ERROR: "#f44336",
-            REQ: "#64b5f6",
-            RES: "#ce93d8",
-        };
-
+        const colors = { INFO: "#8bc34a", WARN: "#FF9800", ERROR: "#f44336", REQ: "#64b5f6", RES: "#ce93d8" };
         const html = this.entries.map(e => {
-            const color = colorMap[e.level] || "#ccc";
-            // 줄바꿈을 보존
-            const formatted = escapeHtml(e.msg).replace(/\n/g, "<br>");
-            return `<div style="margin:1px 0;"><span style="color:#666;">[${e.time}]</span> <span style="color:${color};font-weight:bold;">[${e.level}]</span> <span style="color:#ddd;">${formatted}</span></div>`;
+            const c = colors[e.level] || "#ccc";
+            const f = escapeHtml(e.msg).replace(/\n/g, "<br>");
+            return `<div style="margin:1px 0;"><span style="color:#666;">[${e.time}]</span> <span style="color:${c};font-weight:bold;">[${e.level}]</span> <span style="color:#ddd;">${f}</span></div>`;
         }).join("");
-
         el.html(html);
         el.scrollTop(el[0]?.scrollHeight || 0);
     },
 
-    clear() {
-        this.entries = [];
-        this.render();
-    },
+    clear() { this.entries = []; this.render(); },
 };
 
-function escapeHtml(str) {
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+function escapeHtml(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // ============================================================
-// GCM 토큰 읽기
+// 유틸
 // ============================================================
 function getGcmToken() {
-    const gcm = extension_settings["GCM"];
-    return gcm?.token || "";
+    return extension_settings["GCM"]?.token || "";
 }
 
 function getSettings() {
@@ -125,8 +127,78 @@ function getSettings() {
     return extension_settings[extensionName];
 }
 
-function saveSettings() {
-    saveSettingsDebounced();
+function saveSettings() { saveSettingsDebounced(); }
+
+// ============================================================
+// OpenAI → Anthropic 포맷 변환 (LBI buildClaudeBodyCore 참고)
+// ============================================================
+function convertToAnthropicFormat(messages, model, params) {
+    const openAIChats = structuredClone(messages);
+
+    // 1) 맨 앞의 연속 system 메시지들을 system 파라미터로 추출
+    let splitIndex = openAIChats.findIndex(
+        m => m.role === "user" || m.role === "assistant"
+    );
+    if (splitIndex === -1) splitIndex = openAIChats.length;
+
+    let systemText = "";
+    for (let i = 0; i < splitIndex; i++) {
+        const content = typeof openAIChats[i].content === "string"
+            ? openAIChats[i].content.trim() : "";
+        if (systemText) systemText += "\n\n";
+        systemText += content;
+    }
+    openAIChats.splice(0, splitIndex);
+
+    // 2) 첫 메시지가 user가 아니면 더미 추가
+    if (openAIChats.length === 0 || openAIChats[0].role !== "user") {
+        openAIChats.unshift({ role: "user", content: "Start" });
+    }
+
+    // 3) messages 변환 (같은 role 연속 병합 + system→user 변환)
+    const anthropicMessages = [];
+    for (const msg of openAIChats) {
+        const content = (typeof msg.content === "string" ? msg.content : "").trim();
+        const last = anthropicMessages.length > 0 ? anthropicMessages[anthropicMessages.length - 1] : null;
+
+        if (msg.role === "system") {
+            // system → user로 변환, "system: " 접두사 붙임
+            const text = "system: " + content;
+            if (last?.role === "user") {
+                last.content[0].text += "\n\n" + text;
+            } else {
+                anthropicMessages.push({ role: "user", content: [{ type: "text", text }] });
+            }
+        } else if (msg.role === "user" || msg.role === "assistant") {
+            if (last?.role === msg.role) {
+                last.content[0].text += "\n\n" + content;
+            } else {
+                anthropicMessages.push({ role: msg.role, content: [{ type: "text", text: content }] });
+            }
+        }
+    }
+
+    // 4) 마지막이 user인지 확인
+    if (anthropicMessages.length > 0 && anthropicMessages[anthropicMessages.length - 1].role !== "user") {
+        anthropicMessages.push({ role: "user", content: [{ type: "text", text: "Continue" }] });
+    }
+
+    // 5) body 구성
+    const body = {
+        model: model,
+        messages: anthropicMessages,
+        max_tokens: params.max_tokens || 8192,
+    };
+
+    if (systemText) {
+        body.system = [{ type: "text", text: systemText }];
+    }
+
+    if (params.temperature != null) body.temperature = params.temperature;
+    if (params.top_p != null) body.top_p = params.top_p;
+    if (params.stream != null) body.stream = params.stream;
+
+    return body;
 }
 
 // ============================================================
@@ -142,58 +214,38 @@ const Interceptor = {
 
     async refreshTidToken(apiKey) {
         if (!apiKey) return "";
-
         if (this.tidToken && Date.now() < this.tidTokenExpiry - 60000) {
-            DebugLog.info("tid 토큰 캐시 사용 (만료:", new Date(this.tidTokenExpiry).toLocaleTimeString(), ")");
+            DebugLog.info("tid 토큰 캐시 사용");
             return this.tidToken;
         }
-
         try {
             DebugLog.info("tid 토큰 갱신 요청...");
             const res = await this.originalFetch.call(window, COPILOT_INTERNAL_TOKEN_URL, {
                 method: "GET",
-                headers: {
-                    "Accept": "application/json",
-                    "Authorization": `Bearer ${apiKey}`,
-                },
+                headers: { "Accept": "application/json", "Authorization": `Bearer ${apiKey}` },
             });
-
-            if (!res.ok) {
-                DebugLog.error("tid 토큰 갱신 실패:", res.status);
-                return "";
-            }
-
+            if (!res.ok) { DebugLog.error("tid 갱신 실패:", res.status); return ""; }
             const data = await res.json();
             if (data.token && data.expires_at) {
                 this.tidToken = data.token;
                 this.tidTokenExpiry = data.expires_at * 1000;
-                DebugLog.info("tid 토큰 갱신 성공, 만료:", new Date(this.tidTokenExpiry).toLocaleString());
+                DebugLog.info("tid 토큰 갱신 성공");
                 return this.tidToken;
             }
-
-            DebugLog.error("tid 응답에 유효한 토큰 없음");
             return "";
-        } catch (e) {
-            DebugLog.error("tid 토큰 갱신 오류:", String(e));
-            return "";
-        }
+        } catch (e) { DebugLog.error("tid 오류:", String(e)); return ""; }
     },
 
     buildVscodeHeaders() {
         const s = getSettings();
         const chatVer = s.chatVersion || "0.26.4";
         const codeVer = s.codeVersion || "1.100.0";
-
         if (!this.machineId) {
-            this.machineId = Array.from({ length: 64 }, () =>
-                Math.floor(Math.random() * 16).toString(16)
-            ).join("");
+            this.machineId = Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
         }
         if (!this.sessionId) {
-            this.sessionId = (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString())
-                + Date.now().toString();
+            this.sessionId = (crypto.randomUUID?.() || Date.now().toString()) + Date.now().toString();
         }
-
         return {
             "Copilot-Integration-Id": "vscode-chat",
             "Editor-Plugin-Version": `copilot-chat/${chatVer}`,
@@ -203,40 +255,46 @@ const Interceptor = {
             "Vscode-Sessionid": this.sessionId,
             "X-Github-Api-Version": "2025-10-01",
             "X-Initiator": "user",
-            "X-Interaction-Id": crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+            "X-Interaction-Id": crypto.randomUUID?.() || Date.now().toString(),
             "X-Interaction-Type": "conversation-panel",
-            "X-Request-Id": crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(),
+            "X-Request-Id": crypto.randomUUID?.() || Date.now().toString(),
             "X-Vscode-User-Agent-Library-Version": "electron-fetch",
         };
     },
 
     async interceptAndSend(requestBody) {
         const token = getGcmToken();
-        if (!token) {
-            throw new Error("GCM에 저장된 토큰이 없습니다.");
-        }
+        if (!token) throw new Error("GCM 토큰 없음");
 
         const s = getSettings();
-        const url = `${COPILOT_API_BASE}/chat/completions`;
+        const isAnthropic = s.endpoint === "anthropic";
+        const url = isAnthropic
+            ? `${COPILOT_API_BASE}/v1/messages`
+            : `${COPILOT_API_BASE}/chat/completions`;
 
-        const headers = {
-            "Content-Type": "application/json",
-            "Accept": "text/event-stream",
-        };
+        DebugLog.info(`엔드포인트: ${s.endpoint} → ${url}`);
+
+        // 헤더
+        const headers = { "Content-Type": "application/json" };
+
+        if (isAnthropic) {
+            headers["Accept"] = "application/json";
+        } else {
+            headers["Accept"] = "text/event-stream";
+        }
 
         if (s.useVscodeHeaders) {
             const tidToken = await this.refreshTidToken(token);
             headers["Authorization"] = `Bearer ${tidToken || token}`;
             Object.assign(headers, this.buildVscodeHeaders());
-            DebugLog.info("VSCode 위장 헤더 적용됨");
+            DebugLog.info("VSCode 위장 헤더 적용");
         } else {
             headers["Authorization"] = `Bearer ${token}`;
             headers["Copilot-Integration-Id"] = "vscode-chat";
-            DebugLog.info("최소 헤더 모드");
         }
 
         // body 정리
-        const body = { ...requestBody };
+        let body = { ...requestBody };
         delete body.custom_url;
         delete body.api_key_custom;
         delete body.reverse_proxy;
@@ -245,24 +303,59 @@ const Interceptor = {
             if (body[key] === undefined) delete body[key];
         }
 
-        // 프리필 제거 (토글)
-        if (s.removePrefill && body.messages && body.messages.length > 0) {
-            let removed = 0;
-            while (
-                body.messages.length > 1 &&
-                body.messages[body.messages.length - 1].role === "assistant"
-            ) {
-                const r = body.messages.pop();
-                const preview = typeof r.content === "string"
-                    ? r.content.substring(0, 50)
-                    : "(complex)";
-                DebugLog.warn(`프리필 제거: [${r.role}] ${preview}`);
-                removed++;
+        if (isAnthropic) {
+            // === Anthropic 포맷 변환 ===
+            DebugLog.info("OpenAI → Anthropic 포맷 변환 중...");
+
+            const model = body.model || "claude-sonnet-4.5";
+            const params = {
+                max_tokens: body.max_tokens || 8192,
+                temperature: body.temperature,
+                top_p: body.top_p,
+                stream: body.stream,
+            };
+
+            body = convertToAnthropicFormat(body.messages || [], model, params);
+            DebugLog.info(`변환 완료: system ${body.system ? "있음" : "없음"}, messages ${body.messages.length}개`);
+
+        } else {
+            // === OpenAI 포맷 보정 ===
+
+            // 프리필 제거
+            if (s.removePrefill && body.messages?.length > 0) {
+                let removed = 0;
+                while (body.messages.length > 1 && body.messages[body.messages.length - 1].role === "assistant") {
+                    const r = body.messages.pop();
+                    DebugLog.warn(`프리필 제거: [${r.role}]`);
+                    removed++;
+                }
+                if (removed > 0) DebugLog.info(`${removed}개 프리필 제거됨`);
             }
-            if (removed > 0) DebugLog.info(`총 ${removed}개 assistant 프리필 메시지 제거됨`);
+
+            // assistant trailing whitespace trim
+            if (s.trimAssistant && body.messages?.length > 0) {
+                for (const m of body.messages) {
+                    if (m.role === "assistant" && typeof m.content === "string") {
+                        const orig = m.content;
+                        m.content = m.content.trimEnd();
+                        if (orig !== m.content) {
+                            DebugLog.warn(`assistant 끝 공백 제거 (${orig.length} → ${m.content.length}자)`);
+                        }
+                    }
+                }
+            }
+
+            // 마지막 메시지 user 강제
+            if (s.forceLastUser && body.messages?.length > 0) {
+                const last = body.messages[body.messages.length - 1];
+                if (last.role !== "user") {
+                    DebugLog.warn(`마지막 role 변환: ${last.role} → user`);
+                    last.role = "user";
+                }
+            }
         }
 
-        // 디버그: 요청 상세 로그
+        // 디버그 로그
         DebugLog.request("POST", url, headers, body);
 
         // 프록시 요청
@@ -277,7 +370,6 @@ const Interceptor = {
             body: JSON.stringify(body),
             credentials,
         });
-
         const elapsed = Date.now() - startTime;
 
         if (!response.ok) {
@@ -285,11 +377,94 @@ const Interceptor = {
             DebugLog.response(response.status, response.statusText, errText);
             DebugLog.error(`요청 실패 (${elapsed}ms)`);
         } else {
-            DebugLog.response(response.status, response.statusText, "(스트리밍 응답)");
+            DebugLog.response(response.status, response.statusText, "(응답 수신)");
             DebugLog.info(`요청 성공 (${elapsed}ms)`);
         }
 
+        // Anthropic 응답을 OpenAI 포맷으로 변환 (SillyTavern이 파싱할 수 있도록)
+        if (isAnthropic && response.ok) {
+            return this.convertAnthropicResponse(response, body.stream);
+        }
+
         return response;
+    },
+
+    /**
+     * Anthropic 응답을 OpenAI Chat Completion 포맷으로 변환
+     * SillyTavern은 OpenAI 포맷을 기대하므로
+     */
+    async convertAnthropicResponse(response, isStream) {
+        if (isStream) {
+            // 스트리밍: Anthropic SSE → OpenAI SSE 변환
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+
+            const stream = new ReadableStream({
+                async pull(controller) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+                        controller.close();
+                        return;
+                    }
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split("\n");
+
+                    for (const line of lines) {
+                        if (!line.startsWith("data: ")) continue;
+                        const dataStr = line.substring(6).trim();
+                        if (!dataStr) continue;
+
+                        try {
+                            const event = JSON.parse(dataStr);
+
+                            if (event.type === "content_block_delta" && event.delta?.text) {
+                                const openAIChunk = {
+                                    choices: [{ delta: { content: event.delta.text }, index: 0 }],
+                                };
+                                controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(openAIChunk)}\n\n`));
+                            } else if (event.type === "message_stop") {
+                                controller.enqueue(new TextEncoder().encode("data: [DONE]\n\n"));
+                            }
+                        } catch { /* skip */ }
+                    }
+                },
+            });
+
+            return new Response(stream, {
+                status: 200,
+                headers: { "Content-Type": "text/event-stream" },
+            });
+        } else {
+            // 비스트리밍: Anthropic JSON → OpenAI JSON 변환
+            const data = await response.json();
+            const text = (data.content || [])
+                .filter(b => b.type === "text")
+                .map(b => b.text)
+                .join("");
+
+            const openAIResponse = {
+                choices: [{
+                    message: { role: "assistant", content: text },
+                    index: 0,
+                    finish_reason: data.stop_reason === "end_turn" ? "stop" : data.stop_reason,
+                }],
+                model: data.model,
+                usage: data.usage ? {
+                    prompt_tokens: data.usage.input_tokens,
+                    completion_tokens: data.usage.output_tokens,
+                    total_tokens: (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0),
+                } : undefined,
+            };
+
+            DebugLog.info(`Anthropic→OpenAI 응답 변환: ${text.length}자`);
+
+            return new Response(JSON.stringify(openAIResponse), {
+                status: 200,
+                headers: { "Content-Type": "application/json" },
+            });
+        }
     },
 
     install() {
@@ -299,39 +474,21 @@ const Interceptor = {
 
         window.fetch = async function (...args) {
             const [url, options] = args;
-
-            if (!getSettings().enabled) {
-                return self.originalFetch.apply(window, args);
-            }
+            if (!getSettings().enabled) return self.originalFetch.apply(window, args);
 
             const urlStr = typeof url === "string" ? url : url?.url || "";
-            const isTarget =
-                urlStr.includes("/api/backends/chat-completions/generate") ||
+            const isTarget = urlStr.includes("/api/backends/chat-completions/generate") ||
                 urlStr.includes("/api/backends/custom/generate");
-
-            if (!isTarget) {
-                return self.originalFetch.apply(window, args);
-            }
+            if (!isTarget) return self.originalFetch.apply(window, args);
 
             let requestBody;
             try {
-                const bodyText = typeof options?.body === "string"
-                    ? options.body
-                    : await options?.body?.text?.() || "{}";
+                const bodyText = typeof options?.body === "string" ? options.body : await options?.body?.text?.() || "{}";
                 requestBody = JSON.parse(bodyText);
-            } catch {
-                return self.originalFetch.apply(window, args);
-            }
+            } catch { return self.originalFetch.apply(window, args); }
 
-            const customUrl = requestBody.custom_url || "";
-            if (!customUrl.includes("githubcopilot.com")) {
-                return self.originalFetch.apply(window, args);
-            }
-
-            if (!getGcmToken()) {
-                DebugLog.warn("GCM 토큰 없음, 원본 요청으로 전달");
-                return self.originalFetch.apply(window, args);
-            }
+            if (!(requestBody.custom_url || "").includes("githubcopilot.com")) return self.originalFetch.apply(window, args);
+            if (!getGcmToken()) { DebugLog.warn("GCM 토큰 없음"); return self.originalFetch.apply(window, args); }
 
             DebugLog.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             DebugLog.info("Copilot 요청 인터셉트!");
@@ -365,9 +522,8 @@ const Interceptor = {
     },
 };
 
-
 // ============================================================
-// UI 업데이트
+// UI
 // ============================================================
 function updateStatus() {
     const s = getSettings();
@@ -377,14 +533,13 @@ function updateStatus() {
     if (!s.enabled) {
         el.text("❌ 비활성").css("color", "#f44336");
     } else if (!token) {
-        el.text("⚠️ GCM 토큰 없음 — GCM에서 먼저 토큰을 발급받으세요").css("color", "#FF9800");
+        el.text("⚠️ GCM 토큰 없음").css("color", "#FF9800");
     } else if (Interceptor.active) {
-        el.text("✅ 활성 — Copilot 요청을 자동 변환 중").css("color", "#4CAF50");
+        el.text(`✅ 활성 — ${s.endpoint === "anthropic" ? "Anthropic (/v1/messages)" : "OpenAI (/chat/completions)"}`).css("color", "#4CAF50");
     } else {
-        el.text("⚠️ 설정은 켜져 있지만 인터셉터 미설치").css("color", "#FF9800");
+        el.text("⚠️ 인터셉터 미설치").css("color", "#FF9800");
     }
 }
-
 
 // ============================================================
 // 초기화
@@ -393,111 +548,79 @@ jQuery(async () => {
     const html = await $.get(`${extensionFolderPath}/settings.html`);
     $("#extensions_settings").append(html);
 
-    // --- 인터셉터 토글 ---
+    // 이벤트
     $("#cpi_enabled").on("change", function () {
         const s = getSettings();
         s.enabled = $(this).prop("checked");
         saveSettings();
-        if (s.enabled) {
-            Interceptor.install();
-            toastr.success("[CPI] 인터셉터 활성화");
-        } else {
-            Interceptor.uninstall();
-            toastr.info("[CPI] 인터셉터 비활성화");
-        }
+        s.enabled ? Interceptor.install() : Interceptor.uninstall();
+        s.enabled ? toastr.success("[CPI] 활성화") : toastr.info("[CPI] 비활성화");
         updateStatus();
     });
 
-    // --- VSCode 헤더 토글 ---
+    $("#cpi_endpoint").on("change", function () {
+        const s = getSettings();
+        s.endpoint = $(this).val();
+        saveSettings();
+        DebugLog.info("엔드포인트:", s.endpoint);
+        // OpenAI 전용 옵션 표시/숨김
+        $(".cpi-openai-only").toggle(s.endpoint === "openai");
+        updateStatus();
+    });
+
     $("#cpi_use_vscode_headers").on("change", function () {
-        const s = getSettings();
-        s.useVscodeHeaders = $(this).prop("checked");
-        saveSettings();
+        const s = getSettings(); s.useVscodeHeaders = $(this).prop("checked"); saveSettings();
     });
-
-    // --- 프리필 제거 토글 ---
     $("#cpi_remove_prefill").on("change", function () {
-        const s = getSettings();
-        s.removePrefill = $(this).prop("checked");
-        saveSettings();
-        DebugLog.info("프리필 자동 제거:", s.removePrefill ? "ON" : "OFF");
+        const s = getSettings(); s.removePrefill = $(this).prop("checked"); saveSettings();
+        DebugLog.info("프리필 제거:", s.removePrefill ? "ON" : "OFF");
     });
-
-    // --- basicAuth 호환 토글 ---
+    $("#cpi_trim_assistant").on("change", function () {
+        const s = getSettings(); s.trimAssistant = $(this).prop("checked"); saveSettings();
+        DebugLog.info("assistant trim:", s.trimAssistant ? "ON" : "OFF");
+    });
+    $("#cpi_force_last_user").on("change", function () {
+        const s = getSettings(); s.forceLastUser = $(this).prop("checked"); saveSettings();
+        DebugLog.info("마지막 user 강제:", s.forceLastUser ? "ON" : "OFF");
+    });
     $("#cpi_basic_auth_compat").on("change", function () {
-        const s = getSettings();
-        s.basicAuthCompat = $(this).prop("checked");
-        saveSettings();
-        DebugLog.info("basicAuth 호환 모드:", s.basicAuthCompat ? "ON" : "OFF");
+        const s = getSettings(); s.basicAuthCompat = $(this).prop("checked"); saveSettings();
+        DebugLog.info("basicAuth:", s.basicAuthCompat ? "ON" : "OFF");
     });
-
-    // --- 디버그 로그 토글 ---
     $("#cpi_debug_log").on("change", function () {
-        const s = getSettings();
-        s.debugLog = $(this).prop("checked");
-        saveSettings();
-        if (s.debugLog) {
-            $("#cpi_log_panel").slideDown(150);
-            DebugLog.render();
-        } else {
-            $("#cpi_log_panel").slideUp(150);
-        }
+        const s = getSettings(); s.debugLog = $(this).prop("checked"); saveSettings();
+        s.debugLog ? $("#cpi_log_panel").slideDown(150) && DebugLog.render() : $("#cpi_log_panel").slideUp(150);
     });
-
-    // --- 버전 설정 ---
     $("#cpi_chat_version").on("change", function () {
-        const s = getSettings();
-        s.chatVersion = $(this).val().trim() || "0.26.4";
-        saveSettings();
-        Interceptor.reset();
+        const s = getSettings(); s.chatVersion = $(this).val().trim() || "0.26.4"; saveSettings(); Interceptor.reset();
     });
-
     $("#cpi_code_version").on("change", function () {
-        const s = getSettings();
-        s.codeVersion = $(this).val().trim() || "1.100.0";
-        saveSettings();
-        Interceptor.reset();
+        const s = getSettings(); s.codeVersion = $(this).val().trim() || "1.100.0"; saveSettings(); Interceptor.reset();
     });
+    $("#cpi_reset_session").on("click", () => { Interceptor.reset(); toastr.info("[CPI] 세션 초기화"); updateStatus(); });
+    $("#cpi_clear_log").on("click", () => { DebugLog.clear(); toastr.info("[CPI] 로그 초기화"); });
 
-    // --- 버튼 ---
-    $("#cpi_reset_session").on("click", () => {
-        Interceptor.reset();
-        toastr.info("[CPI] 세션 초기화됨");
-        updateStatus();
-    });
-
-    $("#cpi_clear_log").on("click", () => {
-        DebugLog.clear();
-        toastr.info("[CPI] 로그 초기화됨");
-    });
-
-    // --- 설정 로드 ---
+    // 설정 로드
     const s = getSettings();
-    if (s.enabled === undefined) s.enabled = true;
-    if (s.useVscodeHeaders === undefined) s.useVscodeHeaders = true;
-    if (s.removePrefill === undefined) s.removePrefill = true;
-    if (s.basicAuthCompat === undefined) s.basicAuthCompat = false;
-    if (s.debugLog === undefined) s.debugLog = true;
-    if (!s.chatVersion) s.chatVersion = "0.26.4";
-    if (!s.codeVersion) s.codeVersion = "1.100.0";
+    for (const [k, v] of Object.entries(defaultSettings)) {
+        if (s[k] === undefined) s[k] = v;
+    }
 
     $("#cpi_enabled").prop("checked", s.enabled);
+    $("#cpi_endpoint").val(s.endpoint);
     $("#cpi_use_vscode_headers").prop("checked", s.useVscodeHeaders);
     $("#cpi_remove_prefill").prop("checked", s.removePrefill);
+    $("#cpi_trim_assistant").prop("checked", s.trimAssistant);
+    $("#cpi_force_last_user").prop("checked", s.forceLastUser);
     $("#cpi_basic_auth_compat").prop("checked", s.basicAuthCompat);
     $("#cpi_debug_log").prop("checked", s.debugLog);
     $("#cpi_chat_version").val(s.chatVersion);
     $("#cpi_code_version").val(s.codeVersion);
 
-    if (!s.debugLog) {
-        $("#cpi_log_panel").hide();
-    }
+    $(".cpi-openai-only").toggle(s.endpoint === "openai");
+    if (!s.debugLog) $("#cpi_log_panel").hide();
 
-    // 자동 시작
-    if (s.enabled) {
-        Interceptor.install();
-    }
+    if (s.enabled) Interceptor.install();
     updateStatus();
-
-    DebugLog.info("CPI (Copilot Interceptor) 로드 완료");
+    DebugLog.info("CPI 로드 완료");
 });

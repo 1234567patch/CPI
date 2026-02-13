@@ -6,9 +6,20 @@
         </div>
         <div class="inline-drawer-content">
 
-            <!-- 상태 -->
             <div class="cpi-section">
                 <p id="cpi_status" class="cpi-status">로딩 중...</p>
+            </div>
+
+            <hr class="sysHR" />
+
+            <!-- 엔드포인트 선택 -->
+            <div class="cpi-section">
+                <h4><i class="fa-solid fa-route"></i> 엔드포인트</h4>
+                <select id="cpi_endpoint" class="text_pole" style="font-size:13px;">
+                    <option value="anthropic">Anthropic (/v1/messages) — RisuAI와 동일, 권장</option>
+                    <option value="openai">OpenAI (/chat/completions) — 기본 호환</option>
+                </select>
+                <small class="cpi-dim">Anthropic: system role 완벽 지원, 답변 퀄리티 동일<br>OpenAI: 호환성 높지만 system 처리가 다를 수 있음</small>
             </div>
 
             <hr class="sysHR" />
@@ -25,25 +36,42 @@
                 <label class="checkbox_label cpi-toggle">
                     <input id="cpi_use_vscode_headers" type="checkbox" checked />
                     <span>VSCode 위장 헤더 (권장)</span>
-                    <small class="cpi-dim cpi-toggle-desc">tid 토큰 + VSCode 동일 헤더 전송</small>
-                </label>
-
-                <label class="checkbox_label cpi-toggle">
-                    <input id="cpi_remove_prefill" type="checkbox" checked />
-                    <span>프리필 자동 제거</span>
-                    <small class="cpi-dim cpi-toggle-desc">마지막 assistant 메시지를 자동 제거하여 프리필 에러 방지</small>
                 </label>
 
                 <label class="checkbox_label cpi-toggle">
                     <input id="cpi_basic_auth_compat" type="checkbox" />
                     <span>basicAuth 호환 모드</span>
-                    <small class="cpi-dim cpi-toggle-desc">basicAuthMode 사용시 켜세요. 프록시 요청에 인증 정보를 포함합니다</small>
                 </label>
             </div>
 
             <hr class="sysHR" />
 
-            <!-- 버전 설정 -->
+            <!-- OpenAI 전용 보정 옵션 -->
+            <div class="cpi-section cpi-openai-only">
+                <h4><i class="fa-solid fa-wrench"></i> OpenAI 포맷 보정 (OpenAI 모드 전용)</h4>
+
+                <label class="checkbox_label cpi-toggle">
+                    <input id="cpi_remove_prefill" type="checkbox" checked />
+                    <span>프리필 자동 제거</span>
+                    <small class="cpi-dim cpi-toggle-desc">마지막 assistant 메시지 제거</small>
+                </label>
+
+                <label class="checkbox_label cpi-toggle">
+                    <input id="cpi_trim_assistant" type="checkbox" checked />
+                    <span>assistant 끝 공백 제거 (trim)</span>
+                    <small class="cpi-dim cpi-toggle-desc">trailing whitespace 에러 방지</small>
+                </label>
+
+                <label class="checkbox_label cpi-toggle">
+                    <input id="cpi_force_last_user" type="checkbox" checked />
+                    <span>마지막 메시지 user 강제</span>
+                    <small class="cpi-dim cpi-toggle-desc">system으로 끝나는 경우 user로 변환</small>
+                </label>
+            </div>
+
+            <hr class="sysHR" />
+
+            <!-- 버전 -->
             <div class="cpi-section">
                 <h4><i class="fa-solid fa-code-branch"></i> 버전</h4>
                 <div class="cpi-version-row">
@@ -62,15 +90,13 @@
             <!-- 디버그 로그 -->
             <div class="cpi-section">
                 <h4><i class="fa-solid fa-terminal"></i> 디버그 로그</h4>
-
                 <div class="cpi-log-toolbar">
                     <label class="checkbox_label" style="margin:0;">
                         <input id="cpi_debug_log" type="checkbox" checked />
                         <span>로그 표시</span>
                     </label>
-                    <input id="cpi_clear_log" class="menu_button" type="button" value="🗑️ 초기화" style="width:auto; padding:2px 10px; font-size:11px;" />
+                    <input id="cpi_clear_log" class="menu_button" type="button" value="🗑️ 초기화" style="width:auto;padding:2px 10px;font-size:11px;" />
                 </div>
-
                 <div id="cpi_log_panel">
                     <div id="cpi_log_content" class="cpi-log-box">
                         <div style="color:#666;">로그 대기 중...</div>
