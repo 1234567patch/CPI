@@ -116,8 +116,19 @@ function escapeHtml(s) {
 // ============================================================
 // 유틸
 // ============================================================
-function getGcmToken() {
-    return extension_settings["GCM"]?.token || "";
+/** 토큰: SillyTavern 연결 프로필의 API key에서 읽기 */
+let _cachedApiKey = "";
+
+function getToken(requestBody) {
+    const apiKey = requestBody?.api_key_custom;
+    if (apiKey && typeof apiKey === "string" && apiKey.trim()) {
+        _cachedApiKey = apiKey.trim();
+    }
+    return _cachedApiKey;
+}
+
+function hasAnyToken() {
+    return !!_cachedApiKey;
 }
 
 function getSettings() {
@@ -135,11 +146,14 @@ function saveSettings() { saveSettingsDebounced(); }
 function convertToAnthropicFormat(messages, model, params) {
     const openAIChats = structuredClone(messages);
 
-    // 1) 맨 앞의 연속 system 메시지들을 system 파라미터로 추출
-    let splitIndex = openAIChats.findIndex(
-        m => m.role === "user" || m.role === "assistant"
-    );
-    if (splitIndex === -1) splitIndex = openAIChats.length;
+    // 1) 첫 assistant 등장 전까지의 메시지를 system 파라미터로 추출
+    //    SillyTavern strict 모드가 system→user로 바꿀 수 있으므로
+    //    첫 assistant 이전의 user/system 모두 system으로 취급
+    let splitIndex = openAIChats.findIndex(m => m.role === "assistant");
+    if (splitIndex === -1) {
+        // assistant가 없으면 마지막 메시지 하나는 남김
+        splitIndex = Math.max(0, openAIChats.length - 1);
+    }
 
     let systemText = "";
     for (let i = 0; i < splitIndex; i++) {
@@ -265,8 +279,8 @@ const Interceptor = {
     },
 
     async interceptAndSend(requestBody) {
-        const token = getGcmToken();
-        if (!token) throw new Error("GCM 토큰 없음");
+        const token = getToken(requestBody);
+        if (!token) throw new Error("토큰 없음 — 연결 프로필의 API key에 Copilot 토큰을 입력하세요");
 
         const s = getSettings();
         const isAnthropic = s.endpoint === "anthropic";
@@ -313,6 +327,18 @@ const Interceptor = {
         } else if (isAnthropic) {
             // === Anthropic 포맷 변환 ===
             DebugLog.info("OpenAI → Anthropic 포맷 변환 중...");
+
+            // 변환 전 원본 로그
+            if (body.messages?.length > 0) {
+                const roles = body.messages.map((m, i) => `[${i}]${m.role}`).join(" ");
+                DebugLog.info(`변환 전 roles: ${roles}`);
+            }
+
+            // 원본 messages role 확인 (변환 전)
+            if (body.messages?.length > 0) {
+                const roleMap = body.messages.map((m, i) => `[${i}]${m.role}`).join(" ");
+                DebugLog.info(`원본 roles: ${roleMap}`);
+            }
 
             // temperature + top_p 동시 전송 방지
             if (body.temperature != null && body.top_p != null) {
@@ -522,7 +548,7 @@ const Interceptor = {
             } catch { return self.originalFetch.apply(window, args); }
 
             if (!(requestBody.custom_url || "").includes("githubcopilot.com")) return self.originalFetch.apply(window, args);
-            if (!getGcmToken()) { DebugLog.warn("GCM 토큰 없음"); return self.originalFetch.apply(window, args); }
+            if (!hasAnyToken() && !requestBody.api_key_custom) { DebugLog.warn("토큰 없음 (API key 또는 GCM 필요)"); return self.originalFetch.apply(window, args); }
 
             DebugLog.info("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
             DebugLog.info("Copilot 요청 인터셉트!");
@@ -561,13 +587,12 @@ const Interceptor = {
 // ============================================================
 function updateStatus() {
     const s = getSettings();
-    const token = getGcmToken();
     const el = $("#cpi_status");
 
     if (!s.enabled) {
         el.text("❌ 비활성").css("color", "#f44336");
-    } else if (!token) {
-        el.text("⚠️ GCM 토큰 없음").css("color", "#FF9800");
+    } else if (!hasAnyToken()) {
+        el.text("⚠️ 토큰 없음 — 연결 프로필의 API key에 토큰 입력 필요").css("color", "#FF9800");
     } else if (Interceptor.active) {
         el.text(`✅ 활성 — ${s.endpoint === "anthropic" ? "Anthropic (/v1/messages)" : s.endpoint === "passthrough" ? "패스스루 (/chat/completions)" : "OpenAI (/chat/completions)"}`).css("color", "#4CAF50");
     } else {
