@@ -17,7 +17,7 @@ const defaultSettings = {
     forceLastUser: true,
     basicAuthCompat: false,
     debugLog: true,
-    endpoint: "anthropic",  // "openai" 또는 "anthropic"
+    endpoint: "anthropic",  // "openai", "anthropic", "passthrough"
     chatVersion: "0.26.4",
     codeVersion: "1.100.0",
 };
@@ -270,6 +270,7 @@ const Interceptor = {
 
         const s = getSettings();
         const isAnthropic = s.endpoint === "anthropic";
+        const isPassthrough = s.endpoint === "passthrough";
         const url = isAnthropic
             ? `${COPILOT_API_BASE}/v1/messages`
             : `${COPILOT_API_BASE}/chat/completions`;
@@ -295,7 +296,7 @@ const Interceptor = {
             headers["Copilot-Integration-Id"] = "vscode-chat";
         }
 
-        // body 정리
+        // body 정리 (공통)
         let body = { ...requestBody };
         delete body.custom_url;
         delete body.api_key_custom;
@@ -305,15 +306,19 @@ const Interceptor = {
             if (body[key] === undefined) delete body[key];
         }
 
-        // temperature와 top_p 동시 전송 방지 (Copilot/Anthropic 공통)
-        if (body.temperature != null && body.top_p != null) {
-            DebugLog.warn(`top_p 제거 (temperature=${body.temperature}와 동시 사용 불가)`);
-            delete body.top_p;
-        }
+        if (isPassthrough) {
+            // === 패스스루: 최소한의 정리만 하고 그대로 전달 ===
+            DebugLog.info("패스스루 모드: 변환 없이 그대로 전달");
 
-        if (isAnthropic) {
+        } else if (isAnthropic) {
             // === Anthropic 포맷 변환 ===
             DebugLog.info("OpenAI → Anthropic 포맷 변환 중...");
+
+            // temperature + top_p 동시 전송 방지
+            if (body.temperature != null && body.top_p != null) {
+                DebugLog.warn(`top_p 제거 (temperature와 동시 사용 불가)`);
+                delete body.top_p;
+            }
 
             const model = body.model || "claude-sonnet-4.5";
             const params = {
@@ -328,6 +333,12 @@ const Interceptor = {
 
         } else {
             // === OpenAI 포맷 보정 ===
+
+            // temperature + top_p 동시 전송 방지
+            if (body.temperature != null && body.top_p != null) {
+                DebugLog.warn(`top_p 제거 (temperature와 동시 사용 불가)`);
+                delete body.top_p;
+            }
 
             // SillyTavern 전용 파라미터 정리
             delete body.chat_completion_source;
@@ -558,7 +569,7 @@ function updateStatus() {
     } else if (!token) {
         el.text("⚠️ GCM 토큰 없음").css("color", "#FF9800");
     } else if (Interceptor.active) {
-        el.text(`✅ 활성 — ${s.endpoint === "anthropic" ? "Anthropic (/v1/messages)" : "OpenAI (/chat/completions)"}`).css("color", "#4CAF50");
+        el.text(`✅ 활성 — ${s.endpoint === "anthropic" ? "Anthropic (/v1/messages)" : s.endpoint === "passthrough" ? "패스스루 (/chat/completions)" : "OpenAI (/chat/completions)"}`).css("color", "#4CAF50");
     } else {
         el.text("⚠️ 인터셉터 미설치").css("color", "#FF9800");
     }

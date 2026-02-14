@@ -16,10 +16,11 @@
             <div class="cpi-section">
                 <h4><i class="fa-solid fa-route"></i> 엔드포인트</h4>
                 <select id="cpi_endpoint" class="text_pole" style="font-size:13px;">
-                    <option value="anthropic">Anthropic (/v1/messages) — RisuAI와 동일, 권장</option>
-                    <option value="openai">OpenAI (/chat/completions) — 기본 호환</option>
+                    <option value="anthropic">Anthropic (/v1/messages) — 클로드 권장</option>
+                    <option value="openai">OpenAI (/chat/completions) — 클로드 호환</option>
+                    <option value="passthrough">패스스루 (/chat/completions) — 변환 없이 그대로 (제미니 등)</option>
                 </select>
-                <small class="cpi-dim">Anthropic: system role 완벽 지원, 답변 퀄리티 동일<br>OpenAI: 호환성 높지만 system 처리가 다를 수 있음</small>
+                <small class="cpi-dim">Anthropic: system role 완벽 지원, 클로드 네이티브 포맷<br>OpenAI: 호환성 높지만 system 처리가 다를 수 있음<br>패스스루: 인증/헤더만 처리, body 변환 없음</small>
             </div>
 
             <hr class="sysHR" />
