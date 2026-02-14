@@ -18,6 +18,7 @@ const defaultSettings = {
     basicAuthCompat: false,
     debugLog: true,
     endpoint: "anthropic",  // "openai", "anthropic", "passthrough"
+    token: "",  // 직접 입력한 Copilot 토큰 (비어있으면 GCM 폴백)
     chatVersion: "0.26.4",
     codeVersion: "1.100.0",
 };
@@ -120,6 +121,11 @@ function escapeHtml(s) {
 let _cachedApiKey = "";
 
 function getToken(requestBody) {
+    // 0. CPI 설정에 직접 입력한 토큰 (최우선)
+    const s = getSettings();
+    if (s.token && s.token.trim()) {
+        return s.token.trim();
+    }
     // 1. SillyTavern 연결 프로필 API key 필드
     const fields = ['api_key_custom', 'api_key', 'reverse_proxy_password', 'proxy_password'];
     for (const f of fields) {
@@ -142,7 +148,6 @@ function getToken(requestBody) {
                 return _cachedApiKey;
             }
         }
-        // key 필드로도 체크
         for (const [k, v] of Object.entries(headers)) {
             if (typeof v === "string" && v.startsWith("gho_")) {
                 _cachedApiKey = v.trim();
@@ -163,7 +168,8 @@ function getToken(requestBody) {
 }
 
 function hasAnyToken() {
-    return !!(_cachedApiKey || extension_settings["GCM"]?.token);
+    const s = getSettings();
+    return !!(s.token?.trim() || _cachedApiKey || extension_settings["GCM"]?.token);
 }
 
 function getSettings() {
@@ -695,6 +701,13 @@ jQuery(async () => {
     });
     $("#cpi_reset_session").on("click", () => { Interceptor.reset(); toastr.info("[CPI] 세션 초기화"); updateStatus(); });
     $("#cpi_clear_log").on("click", () => { DebugLog.clear(); toastr.info("[CPI] 로그 초기화"); });
+    $("#cpi_token").on("change", function () {
+        const s = getSettings();
+        s.token = $(this).val().trim();
+        saveSettings();
+        updateStatus();
+        DebugLog.info(`토큰 ${s.token ? "설정됨" : "제거됨 (GCM 폴백)"}`);
+    });
 
     // 설정 로드
     const s = getSettings();
@@ -704,6 +717,7 @@ jQuery(async () => {
 
     $("#cpi_enabled").prop("checked", s.enabled);
     $("#cpi_endpoint").val(s.endpoint);
+    $("#cpi_token").val(s.token || "");
     $("#cpi_use_vscode_headers").prop("checked", s.useVscodeHeaders);
     $("#cpi_remove_prefill").prop("checked", s.removePrefill);
     $("#cpi_trim_assistant").prop("checked", s.trimAssistant);
