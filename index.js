@@ -268,7 +268,7 @@ function convertToAnthropicFormat(messages, model, params) {
         body.temperature = Math.min(Math.max(params.temperature, 0), 1.0);
     }
     // top_p: temperature 없을 때만
-    if (params.temperature == null && params.top_p != null) {
+    if (params.top_p != null) {
         body.top_p = Math.min(Math.max(params.top_p, 0), 1.0);
     }
     if (params.stream != null) body.stream = params.stream;
@@ -427,12 +427,6 @@ const Interceptor = {
 
         } else {
             // === OpenAI 포맷 보정 ===
-
-            // temperature + top_p 동시 전송 방지
-            if (body.temperature != null && body.top_p != null) {
-                DebugLog.warn(`top_p 제거 (temperature와 동시 사용 불가)`);
-                delete body.top_p;
-            }
 
             // SillyTavern 전용 파라미터 정리
             delete body.chat_completion_source;
