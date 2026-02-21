@@ -414,12 +414,6 @@ const Interceptor = {
                 DebugLog.info(`원본 roles: ${roleMap}`);
             }
 
-            // temperature + top_p 동시 전송 방지
-            if (body.temperature != null && body.top_p != null) {
-                DebugLog.warn(`top_p 제거 (temperature와 동시 사용 불가)`);
-                delete body.top_p;
-            }
-
             const model = body.model || "claude-sonnet-4.5";
             const params = {
                 max_tokens: body.max_tokens || 8192,
