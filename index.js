@@ -268,7 +268,7 @@ function convertToAnthropicFormat(messages, model, params) {
         body.temperature = Math.min(Math.max(params.temperature, 0), 1.0);
     }
     // top_p: temperature 없을 때만
-    if (params.top_p != null) {
+    if (params.temperature == null && params.top_p != null) {
         body.top_p = Math.min(Math.max(params.top_p, 0), 1.0);
     }
     if (params.stream != null) body.stream = params.stream;
